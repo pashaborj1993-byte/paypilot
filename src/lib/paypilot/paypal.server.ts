@@ -44,12 +44,19 @@ async function accessToken() {
   return body.access_token;
 }
 
-async function paypal(token: string, method: string, path: string, payload?: unknown): Promise<PayPalBody> {
+async function paypal(
+  token: string,
+  method: string,
+  path: string,
+  payload?: unknown,
+  extra?: Record<string, string>,
+): Promise<PayPalBody> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...extra,
     },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
@@ -77,7 +84,7 @@ export async function createCheckout(draft: Draft, number: string) {
         amount: { currency_code: "USD", value: checkoutAmount(draft) },
       },
     ],
-  });
+  }, { "PayPal-Request-Id": number });
   const url = order.links?.find((link) => link.rel === "approve")?.href || "";
   if (!order.id || !url) throw new Error("PayPal did not return a checkout link.");
   return { id: order.id, url };
@@ -88,8 +95,14 @@ export async function capturePaid(paypalId: string) {
   const path = `/v2/checkout/orders/${encodeURIComponent(paypalId)}`;
   const order = await paypal(token, "GET", path);
   if (payStep(order.status) === "capture") {
-    const captured = await paypal(token, "POST", `${path}/capture`, {});
+    const captured = await paypal(token, "POST", `${path}/capture`, {}, { "PayPal-Request-Id": `capture-${paypalId}` });
     if (captured.status !== "COMPLETED") throw new Error("PayPal has not completed this payment.");
   }
   return { ok: true };
+}
+
+export async function orderStatus(paypalId: string) {
+  const token = await accessToken();
+  const order = await paypal(token, "GET", `/v2/checkout/orders/${encodeURIComponent(paypalId)}`);
+  return { status: order.status || "UNKNOWN" };
 }

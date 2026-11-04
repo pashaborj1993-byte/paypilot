@@ -18,11 +18,14 @@ export const recordPayPalInvoice = createServerFn({ method: "POST" })
   });
 
 export const paypalFollowUp = createServerFn({ method: "POST" })
-  .validator((input: { action: "paid"; paypalId: string }) => {
-    if (!input?.paypalId || input.action !== "paid") throw new Error("That invoice is not on PayPal.");
-    return { paypalId: input.paypalId };
+  .validator((input: { action: "paid" | "status"; paypalId: string }) => {
+    if (!input?.paypalId || (input.action !== "paid" && input.action !== "status")) {
+      throw new Error("That invoice is not on PayPal.");
+    }
+    return { action: input.action, paypalId: input.paypalId };
   })
   .handler(async ({ data }) => {
-    const { capturePaid } = await import("./paypal.server");
-    return capturePaid(data.paypalId);
+    const paypal = await import("./paypal.server");
+    if (data.action === "status") return paypal.orderStatus(data.paypalId);
+    return paypal.capturePaid(data.paypalId);
   });

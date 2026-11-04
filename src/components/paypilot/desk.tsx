@@ -135,6 +135,37 @@ export function PayPilotDesk() {
     });
   }
 
+  async function checkPayPal(invoice: Invoice) {
+    if (!invoice.paypalId || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await updatePayPal({ data: { action: "status", paypalId: invoice.paypalId } });
+      if (!("status" in result) || result.status !== "COMPLETED") {
+        push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: `${invoice.number} is ${"status" in result ? result.status : "unknown"} at PayPal. It stays open here until PayPal says completed.`,
+        });
+        return;
+      }
+      setInvoices((current) =>
+        current.map((row) =>
+          row.id === invoice.id ? { ...row, status: "paid", paidAt: new Date().toISOString() } : row,
+        ),
+      );
+      push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: `${invoice.number} is paid at PayPal, so the ledger matches.`,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "PayPal could not be checked.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function applyStatus(status: "reminded" | "paid" | "cancelled", hint: string, verb: string) {
     const match = findInvoice(invoices, hint);
     if (!match) {
@@ -432,6 +463,7 @@ export function PayPilotDesk() {
                 onRemind={() => applyStatus("reminded", invoice.number, "reminded")}
                 onPaid={() => applyStatus("paid", invoice.number, "paid")}
                 onCancel={() => applyStatus("cancelled", invoice.number, "cancelled")}
+                onCheck={() => void checkPayPal(invoice)}
                 onDownload={() => printInvoice(invoice, logo)}
               />
             ))
@@ -503,15 +535,18 @@ function InvoiceCard({
   onRemind,
   onPaid,
   onCancel,
+  onCheck,
   onDownload,
 }: {
   invoice: Invoice;
   onRemind: () => void;
   onPaid: () => void;
   onCancel: () => void;
+  onCheck: () => void;
   onDownload: () => void;
 }) {
   const closed = invoice.status === "paid" || invoice.status === "cancelled";
+  const when = new Date(invoice.createdAt).toLocaleString();
   return (
     <article className="card rounded-[20px] border border-line bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
@@ -522,6 +557,7 @@ function InvoiceCard({
         <StatusPill status={invoice.status} />
       </div>
       <p className="mt-2 font-mono text-sm tabular-nums text-ink">{formatMoney(draftTotal(invoice), "USD")}</p>
+      <p className="mt-1 text-xs text-muted">{invoice.paypalId ? `${invoice.paypalId} · ` : ""}{when}</p>
       {invoice.paypalUrl ? (
         <a href={invoice.paypalUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-accent">
           Open in PayPal
@@ -531,6 +567,11 @@ function InvoiceCard({
         <button type="button" onClick={onDownload} className="h-10 rounded-[10px] border border-line px-3 text-xs text-ink">
           Download
         </button>
+        {invoice.paypalId ? (
+          <button type="button" onClick={onCheck} className="h-10 rounded-[10px] border border-line px-3 text-xs text-ink">
+            Check PayPal
+          </button>
+        ) : null}
         {closed ? null : (
           <>
             <button type="button" onClick={onRemind} className="h-10 rounded-[10px] border border-line px-3 text-xs text-ink">
