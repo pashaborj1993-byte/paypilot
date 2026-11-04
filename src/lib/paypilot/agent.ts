@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { localInterpret } from "./interpret";
+import { checkoutAmount } from "./money";
 import { MODEL_CALL_CAP } from "./storage";
 import type { AgentResult, Draft, LineItem } from "./types";
 
@@ -114,11 +115,11 @@ function sanitizeDraft(draft: Draft | null | undefined): Draft | null {
 function cleanLine(item: { name?: string; quantity?: number; unitPrice?: number }): LineItem | null {
   const quantity = Number(item.quantity);
   const unitPrice = Number(item.unitPrice);
-  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 999) return null;
-  if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 1_000_000) return null;
-  return {
-    name: String(item.name || "Service").slice(0, 80),
-    quantity,
-    unitPrice,
-  };
+  const name = String(item.name || "Service").slice(0, 80);
+  try {
+    checkoutAmount({ items: [{ name, quantity, unitPrice }] });
+  } catch {
+    return null;
+  }
+  return { name, quantity, unitPrice };
 }

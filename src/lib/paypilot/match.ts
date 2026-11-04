@@ -31,6 +31,11 @@ export function findInvoice(invoices: Invoice[], hint: string): Invoice | undefi
   return named.length === 1 ? named[0] : undefined;
 }
 
+export function canFollowUp(status: Invoice["status"], next: "reminded" | "cancelled" | "paid") {
+  if (next === "paid") return true;
+  return status === "sent" || status === "reminded";
+}
+
 function nameInHint(hint: string, name: string) {
   const clean = name.trim().toLowerCase();
   if (clean.length < 2) return false;

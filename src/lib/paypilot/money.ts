@@ -28,6 +28,12 @@ export function checkoutAmount(draft: Pick<Draft, "items">) {
   return total.toFixed(2);
 }
 
+export function payStep(status: string | undefined): "capture" | "done" {
+  if (status === "APPROVED") return "capture";
+  if (status === "COMPLETED") return "done";
+  throw new Error("The payer has not approved this in PayPal yet.");
+}
+
 export function formatMoney(amount: number, currency = "USD") {
   try {
     return new Intl.NumberFormat("en-US", {

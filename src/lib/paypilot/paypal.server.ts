@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { checkoutAmount } from "./money";
+import { checkoutAmount, payStep } from "./money";
 import type { Draft } from "./types";
 
 const BASE = "https://api-m.sandbox.paypal.com";
@@ -87,11 +87,9 @@ export async function capturePaid(paypalId: string) {
   const token = await accessToken();
   const path = `/v2/checkout/orders/${encodeURIComponent(paypalId)}`;
   const order = await paypal(token, "GET", path);
-  if (order.status === "APPROVED") {
+  if (payStep(order.status) === "capture") {
     const captured = await paypal(token, "POST", `${path}/capture`, {});
     if (captured.status !== "COMPLETED") throw new Error("PayPal has not completed this payment.");
-    return { ok: true };
   }
-  if (order.status !== "COMPLETED") throw new Error("The payer has not approved this in PayPal yet.");
   return { ok: true };
 }

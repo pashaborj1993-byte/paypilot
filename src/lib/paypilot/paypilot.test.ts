@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
-import { findInvoice } from "./match.ts";
-import { checkoutAmount, draftTotal } from "./money.ts";
+import { canFollowUp, findInvoice } from "./match.ts";
+import { checkoutAmount, draftTotal, payStep } from "./money.ts";
 import type { Invoice } from "./types.ts";
 
 function invoice(patch: Partial<Invoice> & Pick<Invoice, "number" | "recipientName" | "recipientEmail" | "status">): Invoice {
@@ -44,6 +44,12 @@ describe("findInvoice", () => {
   it("does not guess a bill when the hint is blank", () => {
     assert.equal(findInvoice(rows, "   "), undefined);
   });
+
+  it("does not reopen a paid bill", () => {
+    assert.equal(canFollowUp("paid", "reminded"), false);
+    assert.equal(canFollowUp("sent", "reminded"), true);
+    assert.equal(canFollowUp("paid", "paid"), true);
+  });
 });
 
 describe("money and phrases", () => {
@@ -79,5 +85,11 @@ describe("money and phrases", () => {
       () => checkoutAmount({ items: [{ name: "Design", quantity: 1, unitPrice: 0 }] }),
       /price is not allowed/,
     );
+  });
+
+  it("captures only an approved PayPal order", () => {
+    assert.equal(payStep("APPROVED"), "capture");
+    assert.equal(payStep("COMPLETED"), "done");
+    assert.throws(() => payStep("CREATED"), /not approved/);
   });
 });

@@ -4,7 +4,7 @@ import { interpretRequest } from "@/lib/paypilot/agent";
 import { isApproval, isDismiss, isListRequest, localInterpret } from "@/lib/paypilot/interpret";
 import { recordPayPalInvoice, paypalFollowUp } from "@/lib/paypilot/paypal";
 import { printInvoice } from "@/lib/paypilot/invoice-doc";
-import { findInvoice } from "@/lib/paypilot/match";
+import { canFollowUp, findInvoice } from "@/lib/paypilot/match";
 import { draftTotal, formatMoney, nextNumber, outstanding } from "@/lib/paypilot/money";
 import {
   loadChat,
@@ -45,6 +45,7 @@ export function PayPilotDesk() {
   const updatePayPal = useServerFn(paypalFollowUp);
   const threadRef = useRef<HTMLDivElement>(null);
   const approving = useRef(new Set<string>());
+  const issued = useRef(0);
   const logoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -80,15 +81,22 @@ export function PayPilotDesk() {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, ...patch } : message)));
   }
 
+  function takeNumber() {
+    const base = Number(nextNumber(invoices).replace(/\D/g, ""));
+    const next = Math.max(base, issued.current + 1);
+    issued.current = next;
+    return `PP-${next}`;
+  }
+
   async function approve(messageId: string, pending: Draft) {
-    if (approving.current.has(messageId)) return;
+    if (approving.current.size > 0) return;
     const current = messages.find((message) => message.id === messageId);
     if (current?.draftState === "sent") return;
     approving.current.add(messageId);
+    const number = takeNumber();
     setBusy(true);
     setError("");
     try {
-      const number = nextNumber(invoices);
       const paypal = await saveToPayPal({ data: { draft: pending, number } });
       const invoice: Invoice = {
         id: crypto.randomUUID(),
@@ -111,9 +119,9 @@ export function PayPilotDesk() {
         text: `${invoice.number} is a PayPal sandbox checkout for ${invoice.recipientName} — ${formatMoney(draftTotal(invoice), "USD")}. Open it from the ledger.`,
       });
     } catch (cause) {
-      approving.current.delete(messageId);
       setError(cause instanceof Error ? cause.message : "PayPal could not create the invoice.");
     } finally {
+      approving.current.delete(messageId);
       setBusy(false);
     }
   }
@@ -127,13 +135,21 @@ export function PayPilotDesk() {
     });
   }
 
-  async function applyStatus(status: InvoiceStatus, hint: string, verb: string) {
+  async function applyStatus(status: "reminded" | "paid" | "cancelled", hint: string, verb: string) {
     const match = findInvoice(invoices, hint);
     if (!match) {
       push({
         id: crypto.randomUUID(),
         role: "assistant",
         text: "I couldn't match that to an invoice. Use a name, email, or number like PP-1041.",
+      });
+      return;
+    }
+    if (!canFollowUp(match.status, status)) {
+      push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: `${match.number} is already ${match.status}.`,
       });
       return;
     }
@@ -296,6 +312,7 @@ export function PayPilotDesk() {
                 {message.draft && message.draftState === "pending" ? (
                   <DraftCard
                     draft={message.draft}
+                    locked={busy}
                     onApprove={() => approve(message.id, message.draft!)}
                     onDismiss={() => dismiss(message.id)}
                   />
@@ -439,10 +456,12 @@ function PaneButton({ active, onClick, label }: { active: boolean; onClick: () =
 
 function DraftCard({
   draft,
+  locked,
   onApprove,
   onDismiss,
 }: {
   draft: Draft;
+  locked: boolean;
   onApprove: () => void;
   onDismiss: () => void;
 }) {
@@ -468,10 +487,10 @@ function DraftCard({
       </ul>
       <p className="mt-3 text-xs text-muted">{draft.note}</p>
       <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onApprove} className="h-11 flex-1 rounded-[12px] bg-accent text-sm font-medium text-accent-fg">
+        <button type="button" onClick={onApprove} disabled={locked} className="h-11 flex-1 rounded-[12px] bg-accent text-sm font-medium text-accent-fg disabled:opacity-40">
           Approve
         </button>
-        <button type="button" onClick={onDismiss} className="h-11 rounded-[12px] border border-line px-4 text-sm text-ink">
+        <button type="button" onClick={onDismiss} disabled={locked} className="h-11 rounded-[12px] border border-line px-4 text-sm text-ink disabled:opacity-40">
           Discard
         </button>
       </div>
