@@ -106,3 +106,45 @@ export async function orderStatus(paypalId: string) {
   const order = await paypal(token, "GET", `/v2/checkout/orders/${encodeURIComponent(paypalId)}`);
   return { status: order.status || "UNKNOWN" };
 }
+
+export async function registerWebhook(url: string) {
+  const token = await accessToken();
+  const res = await fetch(`${BASE}/v1/notifications/webhooks`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      event_types: [{ name: "PAYMENT.CAPTURE.COMPLETED" }, { name: "CHECKOUT.ORDER.COMPLETED" }],
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string; details?: { description?: string }[] };
+  if (!res.ok || !body.id) {
+    throw new Error(body.details?.[0]?.description || body.message || `PayPal did not register the webhook (${res.status}).`);
+  }
+  return { id: body.id };
+}
+
+export async function verifyWebhook(headers: Headers, event: unknown, webhookId: string) {
+  const token = await accessToken();
+  const res = await fetch(`${BASE}/v1/notifications/verify-webhook-signature`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      auth_algo: headers.get("paypal-auth-algo"),
+      cert_url: headers.get("paypal-cert-url"),
+      transmission_id: headers.get("paypal-transmission-id"),
+      transmission_sig: headers.get("paypal-transmission-sig"),
+      transmission_time: headers.get("paypal-transmission-time"),
+      webhook_id: webhookId,
+      webhook_event: event,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as { verification_status?: string };
+  return res.ok && body.verification_status === "SUCCESS";
+}

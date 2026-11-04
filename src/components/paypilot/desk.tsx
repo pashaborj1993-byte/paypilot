@@ -1,22 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { UserButton } from "@/lib/auth/gates";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { interpretRequest } from "@/lib/paypilot/agent";
 import { isApproval, isDismiss, isListRequest, localInterpret } from "@/lib/paypilot/interpret";
-import { recordPayPalInvoice, paypalFollowUp } from "@/lib/paypilot/paypal";
 import { printInvoice } from "@/lib/paypilot/invoice-doc";
+import { changeInvoice, connectPayPalWebhook, inviteMember, listInvoices, openInvoice, syncInvoice, teamInfo } from "@/lib/paypilot/ledger";
 import { canFollowUp, findInvoice } from "@/lib/paypilot/match";
-import { draftTotal, formatMoney, ledgerBrief, nextNumber, oldestOpen, outstanding } from "@/lib/paypilot/money";
-import {
-  loadChat,
-  loadLedger,
-  loadLogo,
-  loadModelCalls,
-  MODEL_CALL_CAP,
-  saveChat,
-  saveLedger,
-  saveLogo,
-  saveModelCalls,
-} from "@/lib/paypilot/storage";
+import { draftTotal, formatMoney, ledgerBrief, oldestOpen, outstanding } from "@/lib/paypilot/money";
+import { loadChat, loadLogo, loadModelCalls, MODEL_CALL_CAP, saveChat, saveLogo, saveModelCalls } from "@/lib/paypilot/storage";
 import type { ChatMessage, Draft, Invoice, InvoiceStatus } from "@/lib/paypilot/types";
 
 const SUGGESTIONS = [
@@ -40,26 +33,39 @@ export function PayPilotDesk() {
   const [pane, setPane] = useState<"chat" | "ledger">("chat");
   const [error, setError] = useState("");
   const [logo, setLogo] = useState("");
+  const [team, setTeam] = useState<{ name: string; owner: boolean; members: { email: string; role: string }[] } | null>(null);
+  const [invite, setInvite] = useState("");
   const interpret = useServerFn(interpretRequest);
-  const saveToPayPal = useServerFn(recordPayPalInvoice);
-  const updatePayPal = useServerFn(paypalFollowUp);
+  const loadLedger = useServerFn(listInvoices);
+  const loadTeam = useServerFn(teamInfo);
+  const saveInvoice = useServerFn(openInvoice);
+  const updateInvoice = useServerFn(changeInvoice);
+  const checkInvoice = useServerFn(syncInvoice);
+  const sendInvite = useServerFn(inviteMember);
+  const connectWebhook = useServerFn(connectPayPalWebhook);
+  const { user, isPending } = useCurrentUserState();
   const threadRef = useRef<HTMLDivElement>(null);
   const approving = useRef(new Set<string>());
-  const issued = useRef(0);
   const logoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const storedChat = loadChat();
-    setInvoices(loadLedger().map((invoice) => ({ ...invoice, currency: "USD" })));
     setMessages(storedChat.length ? storedChat : [WELCOME]);
     setLogo(loadLogo());
-    setReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    saveLedger(invoices);
-  }, [invoices, ready]);
+    if (!user) {
+      setReady(true);
+      return;
+    }
+    void Promise.all([loadLedger(), loadTeam()])
+      .then(([rows, info]) => {
+        setInvoices(rows);
+        setTeam(info);
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "The ledger could not be loaded.");
+      })
+      .finally(() => setReady(true));
+  }, [user, loadLedger, loadTeam]);
 
   useEffect(() => {
     if (!ready) return;
@@ -82,37 +88,16 @@ export function PayPilotDesk() {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, ...patch } : message)));
   }
 
-  function takeNumber() {
-    const base = Number(nextNumber(invoices).replace(/\D/g, ""));
-    const next = Math.max(base, issued.current + 1);
-    issued.current = next;
-    return `PP-${next}`;
-  }
-
   async function approve(messageId: string, pending: Draft) {
     if (approving.current.size > 0) return;
     const current = messages.find((message) => message.id === messageId);
     if (current?.draftState === "sent") return;
     approving.current.add(messageId);
-    const number = takeNumber();
     setBusy(true);
     setError("");
     try {
-      const paypal = await saveToPayPal({ data: { draft: pending, number } });
-      const invoice: Invoice = {
-        id: crypto.randomUUID(),
-        number,
-        recipientEmail: pending.recipientEmail,
-        recipientName: pending.recipientName,
-        items: pending.items,
-        currency: "USD",
-        note: pending.note,
-        status: "sent",
-        createdAt: new Date().toISOString(),
-        paypalId: paypal.id,
-        paypalUrl: paypal.url,
-      };
-      setInvoices((rows) => [invoice, ...rows]);
+      const invoice = await saveInvoice({ data: { draft: pending } });
+      setInvoices((rows) => [invoice, ...rows.filter((row) => row.id !== invoice.id)]);
       updateMessage(messageId, { draftState: "sent", invoiceNumber: invoice.number });
       push({
         id: crypto.randomUUID(),
@@ -141,24 +126,15 @@ export function PayPilotDesk() {
     setBusy(true);
     setError("");
     try {
-      const result = await updatePayPal({ data: { action: "status", paypalId: invoice.paypalId } });
-      if (!("status" in result) || result.status !== "COMPLETED") {
-        push({
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: `${invoice.number} is ${"status" in result ? result.status : "unknown"} at PayPal. It stays open here until PayPal says completed.`,
-        });
-        return;
-      }
-      setInvoices((current) =>
-        current.map((row) =>
-          row.id === invoice.id ? { ...row, status: "paid", paidAt: new Date().toISOString() } : row,
-        ),
-      );
+      const result = await checkInvoice({ data: { id: invoice.id } });
+      setInvoices((current) => current.map((row) => (row.id === result.invoice.id ? result.invoice : row)));
       push({
         id: crypto.randomUUID(),
         role: "assistant",
-        text: `${invoice.number} is paid at PayPal, so the ledger matches.`,
+        text:
+          result.paypalStatus === "COMPLETED"
+            ? `${invoice.number} is paid at PayPal, so the ledger matches.`
+            : `${invoice.number} is ${result.paypalStatus} at PayPal. It stays open here until PayPal says completed.`,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PayPal could not be checked.");
@@ -185,48 +161,26 @@ export function PayPilotDesk() {
       });
       return;
     }
-    if (status === "cancelled" && match.paypalId) {
+    setBusy(true);
+    setError("");
+    try {
+      const invoice = await updateInvoice({ data: { id: match.id, status } });
+      setInvoices((current) => current.map((row) => (row.id === invoice.id ? invoice : row)));
       push({
         id: crypto.randomUUID(),
         role: "assistant",
-        text: `${match.number} is still a PayPal checkout. Cancel here does not close that link.`,
+        text: `${invoice.number} for ${invoice.recipientName} is now ${verb}.`,
       });
-      return;
-    }
-    if (match.paypalId && status === "paid") {
-      setBusy(true);
-      setError("");
-      try {
-        await updatePayPal({
-          data: {
-            action: "paid",
-            paypalId: match.paypalId,
-          },
-        });
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "PayPal could not update that invoice.");
-        return;
-      } finally {
-        setBusy(false);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "PayPal could not update that invoice.";
+      if (message.includes("still a PayPal checkout")) {
+        push({ id: crypto.randomUUID(), role: "assistant", text: message });
+      } else {
+        setError(message);
       }
+    } finally {
+      setBusy(false);
     }
-    setInvoices((current) =>
-      current.map((invoice) =>
-        invoice.id === match.id
-          ? {
-              ...invoice,
-              status,
-              remindedAt: status === "reminded" ? new Date().toISOString() : invoice.remindedAt,
-              paidAt: status === "paid" ? new Date().toISOString() : invoice.paidAt,
-            }
-          : invoice,
-      ),
-    );
-    push({
-      id: crypto.randomUUID(),
-      role: "assistant",
-      text: `${match.number} for ${match.recipientName} is now ${verb}.`,
-    });
   }
 
   async function submit(text: string) {
@@ -301,6 +255,24 @@ export function PayPilotDesk() {
     }
   }
 
+  if (isPending) return null;
+  if (!user) {
+    return (
+      <main className="grid min-h-screen place-items-center px-6">
+        <div className="max-w-sm space-y-3 text-center">
+          <h1 className="font-display text-4xl">
+            <span className="text-ink">Pay</span>
+            <span className="text-sky">Pilot</span>
+          </h1>
+          <p className="text-sm text-muted">Sign in. Your team ledger is stored on the server.</p>
+          <Link to="/login" className="inline-flex h-11 items-center rounded-[12px] bg-accent px-4 text-sm font-medium text-accent-fg">
+            Sign in
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="rise mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-4 md:px-6 md:py-6">
       <header className="mb-4 flex items-end justify-between gap-4">
@@ -312,7 +284,8 @@ export function PayPilotDesk() {
           </h1>
         </div>
         <div className="text-right">
-          <p className="font-mono text-lg text-ink tabular-nums">{formatMoney(openTotal)}</p>
+          <UserButton />
+          <p className="mt-2 font-mono text-lg text-ink tabular-nums">{formatMoney(openTotal)}</p>
           <p className="text-sm text-muted">{openCount} open</p>
         </div>
       </header>
@@ -400,6 +373,17 @@ export function PayPilotDesk() {
           <p className="mt-2 text-xs text-faint">
             Approving creates a PayPal sandbox checkout. It does not move live money.
           </p>
+          <button
+            type="button"
+            className="mt-2 text-xs text-accent"
+            onClick={() =>
+              void connectWebhook()
+                .then((result) => setError(`PayPal will call ${result.url}`))
+                .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "PayPal webhook was not registered."))
+            }
+          >
+            Register PayPal webhook
+          </button>
         </section>
 
         <aside className={`flex flex-col gap-3 ${pane === "chat" ? "hidden md:flex" : "flex"}`}>
@@ -415,6 +399,44 @@ export function PayPilotDesk() {
               </div>
               {logo ? <img src={logo} alt="" className="h-12 w-12 rounded-[8px] object-contain" /> : null}
             </div>
+            {team ? (
+              <form
+                className="mt-3 space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!team.owner) return;
+                  void sendInvite({ data: { email: invite } })
+                    .then((info) => {
+                      setTeam(info);
+                      setInvite("");
+                    })
+                    .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Invite failed."));
+                }}
+              >
+                <p className="text-xs text-muted">{team.name}</p>
+                <ul className="text-xs text-ink">
+                  {team.members.map((member) => (
+                    <li key={member.email}>
+                      {member.email} · {member.role}
+                    </li>
+                  ))}
+                </ul>
+                {team.owner ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={invite}
+                      onChange={(event) => setInvite(event.target.value)}
+                      placeholder="Teammate email"
+                      className="h-10 min-w-0 flex-1 rounded-[10px] border border-line bg-bg px-3 text-xs"
+                    />
+                    <button type="submit" className="h-10 rounded-[10px] border border-line px-3 text-xs text-ink">
+                      Invite
+                    </button>
+                  </div>
+                ) : null}
+              </form>
+            ) : null}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"

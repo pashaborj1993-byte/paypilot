@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
 import { canFollowUp, findInvoice } from "./match.ts";
 import { checkoutAmount, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
+import { orderIdFromWebhook } from "./webhook.ts";
 import type { Invoice } from "./types.ts";
 
 function invoice(patch: Partial<Invoice> & Pick<Invoice, "number" | "recipientName" | "recipientEmail" | "status">): Invoice {
@@ -102,5 +103,16 @@ describe("money and phrases", () => {
     assert.equal(oldestOpen(rows)?.number, "PP-1043");
     assert.match(ledgerBrief(rows), /^PP-1043 \| Ann/);
     assert.equal(ledgerBrief(rows).includes("Maya"), false);
+  });
+
+  it("reads the PayPal order id from a completed capture", () => {
+    assert.equal(
+      orderIdFromWebhook({
+        event_type: "PAYMENT.CAPTURE.COMPLETED",
+        resource: { supplementary_data: { related_ids: { order_id: "ORDER1" } } },
+      }),
+      "ORDER1",
+    );
+    assert.equal(orderIdFromWebhook({ event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: "ORDER1" } }), null);
   });
 });
