@@ -16,8 +16,11 @@ export function isApproval(text: string) {
   return APPROVALS.has(clean);
 }
 
+const DISMISSALS = new Set(["no", "nope", "discard"]);
+
 export function isDismiss(text: string) {
-  return /^(no|nope|discard|cancel that|don't send|dont send|stop)\b/i.test(text.trim());
+  const clean = text.trim().toLowerCase().replace(/[.!]+$/, "");
+  return DISMISSALS.has(clean);
 }
 
 export function localInterpret(text: string): AgentResult {

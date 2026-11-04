@@ -137,6 +137,14 @@ export function PayPilotDesk() {
       });
       return;
     }
+    if (status === "cancelled" && match.paypalId) {
+      push({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        text: `${match.number} is still a PayPal checkout. Cancel here does not close that link.`,
+      });
+      return;
+    }
     if (match.paypalId && status === "paid") {
       setBusy(true);
       setError("");

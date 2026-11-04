@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isApproval, isListRequest } from "./interpret.ts";
+import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
 import { findInvoice } from "./match.ts";
-import { draftTotal } from "./money.ts";
+import { checkoutAmount, draftTotal } from "./money.ts";
 import type { Invoice } from "./types.ts";
 
 function invoice(patch: Partial<Invoice> & Pick<Invoice, "number" | "recipientName" | "recipientEmail" | "status">): Invoice {
@@ -34,6 +34,16 @@ describe("findInvoice", () => {
   it("matches one open invoice by its full name", () => {
     assert.equal(findInvoice(rows, "remind Heather")?.number, "PP-1041");
   });
+
+  it("does not match a short name hidden inside another word", () => {
+    const ann = invoice({ number: "PP-1043", recipientName: "Ann", recipientEmail: "ann@client.test", status: "sent" });
+    assert.equal(findInvoice([ann], "cancel the annual bill"), undefined);
+    assert.equal(findInvoice([ann], "remind Ann")?.number, "PP-1043");
+  });
+
+  it("does not guess a bill when the hint is blank", () => {
+    assert.equal(findInvoice(rows, "   "), undefined);
+  });
 });
 
 describe("money and phrases", () => {
@@ -53,5 +63,21 @@ describe("money and phrases", () => {
     assert.equal(isApproval("send it"), true);
     assert.equal(isApproval("Send a reminder to Maya"), false);
     assert.equal(isApproval("Yes, change the hours to 4"), false);
+  });
+
+  it("discards only the exact phrase", () => {
+    assert.equal(isDismiss("no"), true);
+    assert.equal(isDismiss("no, make it 4 hours"), false);
+  });
+
+  it("sends 6 hours at $140 to PayPal as 840.00", () => {
+    assert.equal(checkoutAmount({ items: [{ name: "Design", quantity: 6, unitPrice: 140 }] }), "840.00");
+  });
+
+  it("rejects a zero price before PayPal", () => {
+    assert.throws(
+      () => checkoutAmount({ items: [{ name: "Design", quantity: 1, unitPrice: 0 }] }),
+      /price is not allowed/,
+    );
   });
 });

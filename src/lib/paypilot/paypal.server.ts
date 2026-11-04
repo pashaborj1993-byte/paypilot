@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { draftTotal } from "./money";
+import { checkoutAmount } from "./money";
 import type { Draft } from "./types";
 
 const BASE = "https://api-m.sandbox.paypal.com";
@@ -72,16 +72,15 @@ export async function createCheckout(draft: Draft, number: string) {
     intent: "CAPTURE",
     purchase_units: [
       {
-        invoice_id: number,
         description: `${number} for ${draft.recipientName}`.slice(0, 127),
         custom_id: draft.recipientEmail.slice(0, 127),
-        amount: { currency_code: "USD", value: draftTotal(draft).toFixed(2) },
+        amount: { currency_code: "USD", value: checkoutAmount(draft) },
       },
     ],
   });
   const url = order.links?.find((link) => link.rel === "approve")?.href || "";
   if (!order.id || !url) throw new Error("PayPal did not return a checkout link.");
-  return { id: order.id, url, sent: true, sendError: "" };
+  return { id: order.id, url };
 }
 
 export async function capturePaid(paypalId: string) {

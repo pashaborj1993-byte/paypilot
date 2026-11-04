@@ -12,6 +12,22 @@ export function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+export function checkoutAmount(draft: Pick<Draft, "items">) {
+  for (const item of draft.items) {
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(item.unitPrice);
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 999) {
+      throw new Error("That quantity is not allowed.");
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 1_000_000) {
+      throw new Error("That price is not allowed.");
+    }
+  }
+  const total = draftTotal(draft);
+  if (!Number.isFinite(total) || total <= 0) throw new Error("That price is not allowed.");
+  return total.toFixed(2);
+}
+
 export function formatMoney(amount: number, currency = "USD") {
   try {
     return new Intl.NumberFormat("en-US", {

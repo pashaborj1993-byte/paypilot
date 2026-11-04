@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { checkoutAmount } from "./money";
 import type { Draft } from "./types";
 
 export const recordPayPalInvoice = createServerFn({ method: "POST" })
@@ -8,6 +9,7 @@ export const recordPayPalInvoice = createServerFn({ method: "POST" })
     if (!/^PP-\d+$/.test(number) || !draft?.recipientEmail?.includes("@") || !draft.items?.length) {
       throw new Error("That draft is missing an email or a line item.");
     }
+    checkoutAmount(draft);
     return { draft, number };
   })
   .handler(async ({ data }) => {

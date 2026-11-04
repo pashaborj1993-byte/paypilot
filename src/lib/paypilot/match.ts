@@ -6,7 +6,7 @@ function isOpen(invoice: Invoice) {
 
 export function findInvoice(invoices: Invoice[], hint: string): Invoice | undefined {
   const needle = hint.trim().toLowerCase();
-  if (!needle) return invoices.find(isOpen);
+  if (!needle) return undefined;
 
   const exact = invoices.find(
     (invoice) =>
@@ -27,9 +27,13 @@ export function findInvoice(invoices: Invoice[], hint: string): Invoice | undefi
   }
 
   const open = invoices.filter(isOpen);
-  const named = open.filter((invoice) => {
-    const name = invoice.recipientName.trim().toLowerCase();
-    return name.length > 1 && (name === needle || needle.includes(name));
-  });
+  const named = open.filter((invoice) => nameInHint(needle, invoice.recipientName));
   return named.length === 1 ? named[0] : undefined;
+}
+
+function nameInHint(hint: string, name: string) {
+  const clean = name.trim().toLowerCase();
+  if (clean.length < 2) return false;
+  const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z])${escaped}(?:$|[^a-z])`).test(hint);
 }

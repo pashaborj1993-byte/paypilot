@@ -14,9 +14,9 @@ export function printInvoice(invoice: Invoice, logo: string) {
   doc.open();
   doc.write(invoiceHtml(invoice, logo));
   doc.close();
+  iframe.contentWindow.addEventListener("afterprint", () => iframe.remove());
   iframe.contentWindow.focus();
   iframe.contentWindow.print();
-  window.setTimeout(() => iframe.remove(), 1000);
 }
 
 function invoiceHtml(invoice: Invoice, logo: string) {
