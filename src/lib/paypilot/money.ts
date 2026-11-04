@@ -54,6 +54,25 @@ export function outstanding(invoices: Invoice[]) {
   );
 }
 
+export function oldestOpen(invoices: Invoice[]) {
+  return invoices
+    .filter((invoice) => invoice.status === "sent" || invoice.status === "reminded")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+}
+
+export function ledgerBrief(invoices: Invoice[]) {
+  return invoices
+    .filter((invoice) => invoice.status === "sent" || invoice.status === "reminded")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .slice(0, 8)
+    .map(
+      (invoice) =>
+        `${invoice.number} | ${invoice.recipientName} | ${invoice.recipientEmail} | ${invoice.status} | ${draftTotal(invoice)} | ${invoice.createdAt}`,
+    )
+    .join("\n")
+    .slice(0, 1500);
+}
+
 export function nextNumber(invoices: Invoice[]) {
   const used = invoices
     .map((invoice) => Number(invoice.number.replace(/\D/g, "")))

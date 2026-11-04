@@ -49,4 +49,5 @@ export type ChatMessage = {
   draft?: Draft;
   draftState?: "pending" | "sent" | "dismissed";
   invoiceNumber?: string;
+  source?: "grok" | "local";
 };

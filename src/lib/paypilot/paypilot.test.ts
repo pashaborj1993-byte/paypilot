@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
 import { canFollowUp, findInvoice } from "./match.ts";
-import { checkoutAmount, draftTotal, payStep } from "./money.ts";
+import { checkoutAmount, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
 import type { Invoice } from "./types.ts";
 
 function invoice(patch: Partial<Invoice> & Pick<Invoice, "number" | "recipientName" | "recipientEmail" | "status">): Invoice {
@@ -91,5 +91,16 @@ describe("money and phrases", () => {
     assert.equal(payStep("APPROVED"), "capture");
     assert.equal(payStep("COMPLETED"), "done");
     assert.throws(() => payStep("CREATED"), /not approved/);
+  });
+
+  it("tells the model about open bills only, oldest first", () => {
+    const rows = [
+      invoice({ number: "PP-1042", recipientName: "Maya", recipientEmail: "maya@client.test", status: "paid", createdAt: "2026-01-01" }),
+      invoice({ number: "PP-1044", recipientName: "Leo", recipientEmail: "leo@client.test", status: "sent", createdAt: "2026-02-01" }),
+      invoice({ number: "PP-1043", recipientName: "Ann", recipientEmail: "ann@client.test", status: "sent", createdAt: "2026-01-15" }),
+    ];
+    assert.equal(oldestOpen(rows)?.number, "PP-1043");
+    assert.match(ledgerBrief(rows), /^PP-1043 \| Ann/);
+    assert.equal(ledgerBrief(rows).includes("Maya"), false);
   });
 });

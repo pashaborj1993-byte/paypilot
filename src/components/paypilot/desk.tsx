@@ -5,7 +5,7 @@ import { isApproval, isDismiss, isListRequest, localInterpret } from "@/lib/payp
 import { recordPayPalInvoice, paypalFollowUp } from "@/lib/paypilot/paypal";
 import { printInvoice } from "@/lib/paypilot/invoice-doc";
 import { canFollowUp, findInvoice } from "@/lib/paypilot/match";
-import { draftTotal, formatMoney, nextNumber, outstanding } from "@/lib/paypilot/money";
+import { draftTotal, formatMoney, ledgerBrief, nextNumber, oldestOpen, outstanding } from "@/lib/paypilot/money";
 import {
   loadChat,
   loadLedger,
@@ -72,6 +72,7 @@ export function PayPilotDesk() {
 
   const openTotal = useMemo(() => outstanding(invoices), [invoices]);
   const openCount = invoices.filter((invoice) => invoice.status === "sent" || invoice.status === "reminded").length;
+  const chase = useMemo(() => oldestOpen(invoices), [invoices]);
 
   function push(message: ChatMessage) {
     setMessages((current) => [...current, message]);
@@ -246,29 +247,28 @@ export function PayPilotDesk() {
       return;
     }
 
-    if (isListRequest(clean)) {
-      const open = invoices.filter((invoice) => invoice.status === "sent" || invoice.status === "reminded");
-      push({
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: open.length
-          ? `${open.length} open, ${formatMoney(outstanding(invoices))} outstanding. ${open
-              .slice(0, 3)
-              .map((invoice) => `${invoice.number} ${invoice.recipientName}`)
-              .join(", ")}.`
-          : "Nothing is open. Draft one and I'll hold it until you approve.",
-      });
-      return;
-    }
-
     setBusy(true);
     try {
       const calls = loadModelCalls();
       const result =
         calls >= MODEL_CALL_CAP
           ? localInterpret(clean)
-          : await interpret({ data: { text: clean, calls: calls + 1 } });
+          : await interpret({ data: { text: clean, calls: calls + 1, ledger: ledgerBrief(invoices) } });
       if (calls < MODEL_CALL_CAP) saveModelCalls(calls + 1);
+      if (result.source !== "grok" && isListRequest(clean)) {
+        const open = invoices.filter((invoice) => invoice.status === "sent" || invoice.status === "reminded");
+        push({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: open.length
+            ? `${open.length} open, ${formatMoney(outstanding(invoices))} outstanding. ${open
+                .slice(0, 3)
+                .map((invoice) => `${invoice.number} ${invoice.recipientName}`)
+                .join(", ")}.`
+            : "Nothing is open. Draft one and I'll hold it until you approve.",
+        });
+        return;
+      }
       if (result.action === "draft" && result.draft) {
         push({
           id: crypto.randomUUID(),
@@ -276,6 +276,7 @@ export function PayPilotDesk() {
           text: result.reply,
           draft: result.draft,
           draftState: "pending",
+          source: result.source,
         });
         return;
       }
@@ -343,6 +344,7 @@ export function PayPilotDesk() {
                 {message.draft && message.draftState === "pending" ? (
                   <DraftCard
                     draft={message.draft}
+                    source={message.source}
                     locked={busy}
                     onApprove={() => approve(message.id, message.draft!)}
                     onDismiss={() => dismiss(message.id)}
@@ -405,7 +407,11 @@ export function PayPilotDesk() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-display text-xl text-ink">Ledger</h2>
-                <p className="mt-1 text-sm text-muted">Sent invoices stay here until you remind, collect, or cancel.</p>
+                <p className="mt-1 text-sm text-muted">
+                  {chase
+                    ? `Chase ${chase.recipientName} first · ${chase.number} · ${formatMoney(draftTotal(chase))}`
+                    : "Nothing to chase. Approve a draft and it lands here."}
+                </p>
               </div>
               {logo ? <img src={logo} alt="" className="h-12 w-12 rounded-[8px] object-contain" /> : null}
             </div>
@@ -488,11 +494,13 @@ function PaneButton({ active, onClick, label }: { active: boolean; onClick: () =
 
 function DraftCard({
   draft,
+  source,
   locked,
   onApprove,
   onDismiss,
 }: {
   draft: Draft;
+  source?: "grok" | "local";
   locked: boolean;
   onApprove: () => void;
   onDismiss: () => void;
@@ -503,6 +511,7 @@ function DraftCard({
         <div>
           <p className="text-sm font-medium text-ink">{draft.recipientName}</p>
           <p className="text-xs text-muted">{draft.recipientEmail}</p>
+          <p className="text-xs text-muted">{source === "grok" ? "Drafted by Grok" : "Drafted on this device"}</p>
         </div>
         <p className="font-mono text-sm text-ink tabular-nums">{formatMoney(draftTotal(draft), draft.currency)}</p>
       </div>

@@ -14,11 +14,14 @@ Rules:
 - Numbers must be numeric. Currency is always USD.
 - If they give a name and no email, use firstname.lastname@client.test.
 - remind / mark_paid / cancel: draft is null and targetHint is the email, name, or invoice number.
+- The user message ends with the open bills. Those are the only bills that exist.
+- If they ask what is unpaid or who to chase, action is none. Name the oldest open bill as the one to chase. Do not draft.
+- Never invent a bill, a balance, or a person who is not in that list.
 - Never say money has already moved. Approval happens outside this reply.
 - reply is plain language, no emoji.`;
 
 export const interpretRequest = createServerFn({ method: "POST" })
-  .validator((input: { text: string; calls?: number }) => {
+  .validator((input: { text: string; calls?: number; ledger?: string }) => {
     const text = input?.text?.trim() ?? "";
     if (!text || text.length > 800) {
       throw new Error("Write a short request, under 800 characters.");
@@ -27,7 +30,7 @@ export const interpretRequest = createServerFn({ method: "POST" })
     if (!Number.isFinite(calls) || calls < 0) {
       throw new Error("Write a short request, under 800 characters.");
     }
-    return { text, calls };
+    return { text, calls, ledger: (input?.ledger ?? "").slice(0, 1500) };
   })
   .handler(async ({ data }): Promise<AgentResult> => {
     // shortcut: the cap trusts the browser's own count. A forged count or a new browser starts over. Upgrade to an account cap before this key is shared widely.
@@ -49,7 +52,10 @@ export const interpretRequest = createServerFn({ method: "POST" })
           max_tokens: 400,
           messages: [
             { role: "system", content: SYSTEM },
-            { role: "user", content: data.text },
+            {
+              role: "user",
+              content: `${data.text}\n\nOpen bills (only these exist):\n${data.ledger || "none"}`,
+            },
           ],
         }),
       });

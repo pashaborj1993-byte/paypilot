@@ -1,6 +1,6 @@
 # PayPilot
 
-A freelancer says who to bill. Grok (`grok-4.5`) drafts the invoice. Nothing is created until a person approves it. Approval opens a PayPal sandbox checkout. The ledger then follows PayPal, not the other way around.
+A freelancer says who to bill. Grok (`grok-4.5`) drafts the invoice and can see the open bills, so "what's unpaid?" names the oldest one to chase. Nothing is created until a person approves it. Approval opens a PayPal sandbox checkout. The ledger then follows PayPal, not the other way around.
 
 ## What is stored where
 
