@@ -10,6 +10,10 @@ Publishing this app provisions a free Neon Postgres database. In the sandbox pre
 
 PayPal credentials stay in `.env` (see `.env.example`). They are not in this repo. This app's PayPal permissions do not include the Invoicing product, so it uses Checkout orders.
 
+## Demo video
+
+Watch the full PayPilot demo: [PayPilot on YouTube](https://www.youtube.com/watch?v=5hz2C9kJWPw&feature=youtu.be).
+
 ## What is stored where
 
 - The draft lives in the chat until Approve.

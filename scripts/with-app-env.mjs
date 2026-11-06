@@ -22,7 +22,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
@@ -63,6 +63,33 @@ export function readAppEnv(root) {
 /** File values under the process environment: an explicit override wins. */
 export function mergeAppEnv(appEnv, processEnv) {
   return { ...appEnv, ...processEnv };
+}
+
+/**
+ * Windows environment variable names are case-insensitive, but Node chooses
+ * one duplicate name when it spawns a child. `npm run` supplies both `PATH`
+ * and `Path`; the latter contains `node_modules/.bin`, while the former does
+ * not. Keep that npm-aware value under one spelling and explicitly prepend the
+ * project's executable directory before launching Vite.
+ */
+export function normalizeSpawnEnv(env, platform = process.platform, root = projectRoot()) {
+  const bin = join(root, "node_modules", ".bin");
+  if (platform !== "win32") {
+    return { ...env, PATH: [bin, env.PATH].filter(Boolean).join(delimiter) };
+  }
+  const path = [bin, env.Path ?? env.PATH].filter(Boolean).join(delimiter);
+  const normalized = Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toLowerCase() !== "path"),
+  );
+  // `spawn()` itself reads the uppercase spelling while locating the command.
+  // Keep only that spelling; the Windows child process receives it as `Path`.
+  if (path) normalized.PATH = path;
+  return normalized;
+}
+
+/** `vite` is an npm-created .cmd shim on Windows, not a native executable. */
+export function executableForSpawn(command, platform = process.platform) {
+  return platform === "win32" && command === "vite" ? "vite.cmd" : command;
 }
 
 /**
@@ -110,8 +137,14 @@ function main(argv) {
     console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
     process.exit(2);
   }
-  const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const env = normalizeSpawnEnv(mergeAppEnv(readAppEnv(projectRoot()), process.env));
+  // cmd.exe is required to launch an npm .cmd shim on Windows. The command and
+  // arguments come from package scripts, not user input.
+  const child = spawn(executableForSpawn(command), args, {
+    stdio: "inherit",
+    env,
+    shell: process.platform === "win32",
+  });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));

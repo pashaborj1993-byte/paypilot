@@ -7,7 +7,9 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import {
   APP_ENV_REL_PATH,
+  executableForSpawn,
   mergeAppEnv,
+  normalizeSpawnEnv,
   parseAppEnv,
   projectRoot,
   readAppEnv,
@@ -57,6 +59,22 @@ test("an explicit process-env override wins over the file", () => {
   );
   assert.equal(merged.VITE_AUTH_ENABLED, "true");
   assert.equal(merged.PATH, "/usr/bin");
+});
+
+test("keeps npm's Windows Path entry when launching a child", () => {
+  const normalized = normalizeSpawnEnv(
+    { PATH: "C:\\Windows", Path: "C:\\npm-bin;C:\\Windows" },
+    "win32",
+    "C:\\project",
+  );
+  assert.equal(normalized.PATH, "C:\\project\\node_modules\\.bin;C:\\npm-bin;C:\\Windows");
+  assert.equal(normalized.Path, undefined);
+});
+
+test("uses the Windows Vite command shim", () => {
+  assert.equal(executableForSpawn("vite", "win32"), "vite.cmd");
+  assert.equal(executableForSpawn("vite", "linux"), "vite");
+  assert.equal(executableForSpawn(process.execPath, "win32"), process.execPath);
 });
 
 test("this app ships sign-in on", () => {

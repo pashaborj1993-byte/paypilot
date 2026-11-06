@@ -41,11 +41,20 @@ async function teamFor(userId: string, email: string) {
   `;
   const existing = found[0]?.team_id;
   if (existing) return existing;
-  const id = crypto.randomUUID();
-  await sql`insert into paypilot_team (id, name, owner_user_id) values (${id}, ${"My team"}, ${userId})`;
+  // The desk loads the ledger and team details in parallel on a first visit.
+  // A random id here could therefore create two owner teams for one user.
+  // The authenticated user id gives a stable, private-to-the-database key, so
+  // both requests converge on the same new team without a lock or retry loop.
+  const id = `owner:${userId}`;
+  await sql`
+    insert into paypilot_team (id, name, owner_user_id)
+    values (${id}, ${"My team"}, ${userId})
+    on conflict (id) do nothing
+  `;
   await sql`
     insert into paypilot_member (team_id, email, user_id, role)
     values (${id}, ${email}, ${userId}, ${"owner"})
+    on conflict (team_id, email) do nothing
   `;
   return id;
 }
@@ -243,15 +252,24 @@ export async function connectWebhook(userId: string, bearerToken?: string) {
   const sql = await getSql();
   const previous = await sql<{ paypal_id: string }>`select paypal_id from paypilot_webhook where id = ${"current"}`;
   const { deleteWebhook, registerWebhook } = await import("./paypal.server");
-  if (previous[0]?.paypal_id) {
-    await deleteWebhook(previous[0].paypal_id);
-    await sql`delete from paypilot_webhook where id = ${"current"}`;
-  }
+  // Register and persist the replacement before removing the working webhook.
+  // If PayPal or the database rejects the new registration, the old callback
+  // keeps reconciling payments instead of leaving the app with no webhook.
   const created = await registerWebhook(url);
-  await sql`
-    insert into paypilot_webhook (id, url, paypal_id)
-    values (${"current"}, ${url}, ${created.id})
-    on conflict (id) do update set url = ${url}, paypal_id = ${created.id}
-  `;
+  try {
+    await sql`
+      insert into paypilot_webhook (id, url, paypal_id)
+      values (${"current"}, ${url}, ${created.id})
+      on conflict (id) do update set url = ${url}, paypal_id = ${created.id}
+    `;
+  } catch (error) {
+    // The new endpoint is not usable without its id in our database. Best
+    // effort cleanup prevents an untracked duplicate callback on a retry.
+    await deleteWebhook(created.id).catch(() => undefined);
+    throw error;
+  }
+  if (previous[0]?.paypal_id && previous[0].paypal_id !== created.id) {
+    await deleteWebhook(previous[0].paypal_id);
+  }
   return { url };
 }
