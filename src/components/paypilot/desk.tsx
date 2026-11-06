@@ -4,12 +4,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { interpretRequest } from "@/lib/paypilot/agent";
-import { isApproval, isDismiss, isListRequest, localInterpret } from "@/lib/paypilot/interpret";
+import { isApproval, isDismiss, isListRequest } from "@/lib/paypilot/interpret";
 import { printInvoice } from "@/lib/paypilot/invoice-doc";
 import { changeInvoice, connectPayPalWebhook, inviteMember, listInvoices, openInvoice, syncInvoice, teamInfo } from "@/lib/paypilot/ledger";
 import { canFollowUp, findInvoice } from "@/lib/paypilot/match";
-import { draftTotal, formatMoney, ledgerBrief, oldestOpen, outstanding } from "@/lib/paypilot/money";
-import { loadChat, loadLogo, loadModelCalls, MODEL_CALL_CAP, saveChat, saveLogo, saveModelCalls } from "@/lib/paypilot/storage";
+import { draftTotal, formatMoney, oldestOpen, outstanding } from "@/lib/paypilot/money";
+import { loadChat, loadLogo, saveChat, saveLogo } from "@/lib/paypilot/storage";
 import type { ChatMessage, Draft, Invoice, InvoiceStatus } from "@/lib/paypilot/types";
 
 const SUGGESTIONS = [
@@ -203,12 +203,7 @@ export function PayPilotDesk() {
 
     setBusy(true);
     try {
-      const calls = loadModelCalls();
-      const result =
-        calls >= MODEL_CALL_CAP
-          ? localInterpret(clean)
-          : await interpret({ data: { text: clean, calls: calls + 1, ledger: ledgerBrief(invoices) } });
-      if (calls < MODEL_CALL_CAP) saveModelCalls(calls + 1);
+      const result = await interpret({ data: { text: clean } });
       if (result.source !== "grok" && isListRequest(clean)) {
         const open = invoices.filter((invoice) => invoice.status === "sent" || invoice.status === "reminded");
         push({

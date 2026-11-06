@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
 import { canFollowUp, findInvoice } from "./match.ts";
 import { checkoutAmount, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
+import { invoiceNumber, ALLOCATE_NUMBER_SQL } from "./numbers.ts";
+import { isPayPalAdmin, webhookEndpoint } from "./policy.ts";
+import { MODEL_CALL_CAP, RESERVE_CALL_SQL, withinDailyCap } from "./quota.ts";
 import { orderIdFromWebhook } from "./webhook.ts";
 import type { Invoice } from "./types.ts";
 
@@ -116,3 +119,74 @@ describe("money and phrases", () => {
     assert.equal(orderIdFromWebhook({ event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: "ORDER1" } }), null);
   });
 });
+
+describe("webhook and model cap", () => {
+  it("builds the webhook from the configured origin only", () => {
+    assert.equal(webhookEndpoint("https://paypilot.example.com"), "https://paypilot.example.com/api/paypal/webhook");
+    assert.equal(webhookEndpoint("https://paypilot.example.com/"), "https://paypilot.example.com/api/paypal/webhook");
+    assert.throws(() => webhookEndpoint("http://paypilot.example.com"), /https/);
+    assert.throws(() => webhookEndpoint("https://localhost"), /public host/);
+    assert.throws(() => webhookEndpoint("https://paypilot.example.com/hook"), /origin/);
+    assert.throws(() => webhookEndpoint(undefined), /APP_PUBLIC_URL/);
+  });
+
+  it("allows only the configured admin address", () => {
+    assert.equal(isPayPalAdmin("Owner@Example.com", "owner@example.com"), true);
+    assert.equal(isPayPalAdmin("member@example.com", "owner@example.com"), false);
+    assert.equal(isPayPalAdmin("owner@example.com", ""), false);
+    assert.equal(isPayPalAdmin("owner@example.com", undefined), false);
+  });
+
+  it("stops counting once the daily cap is reached", () => {
+    assert.equal(withinDailyCap(1), true);
+    assert.equal(withinDailyCap(MODEL_CALL_CAP), true);
+    assert.equal(withinDailyCap(MODEL_CALL_CAP + 1), false);
+    assert.equal(withinDailyCap(undefined), false);
+  });
+
+  it("allocates the next bill number once, then the one after", async () => {
+    const { PGlite } = await import("@electric-sql/pglite");
+    const db = new PGlite();
+    await db.exec(`
+      create table paypilot_invoice (
+        id text primary key,
+        team_id text not null,
+        number text not null,
+        unique (team_id, number)
+      );
+      create table paypilot_number (
+        team_id text primary key,
+        next_n integer not null
+      );
+      insert into paypilot_invoice (id, team_id, number) values ('a', 'team', 'PP-1044');
+    `);
+    const first = await db.query<{ next_n: number }>(ALLOCATE_NUMBER_SQL, ["team"]);
+    const second = await db.query<{ next_n: number }>(ALLOCATE_NUMBER_SQL, ["team"]);
+    assert.equal(invoiceNumber(first.rows[0].next_n), "PP-1045");
+    assert.equal(invoiceNumber(second.rows[0].next_n), "PP-1046");
+    const together = await Promise.all([
+      db.query<{ next_n: number }>(ALLOCATE_NUMBER_SQL, ["team"]),
+      db.query<{ next_n: number }>(ALLOCATE_NUMBER_SQL, ["team"]),
+    ]);
+    const handed = together.map((result) => result.rows[0].next_n).sort((a, b) => a - b);
+    assert.deepEqual(handed, [1047, 1048]);
+
+    await db.exec(`
+      create table paypilot_model_use (
+        user_id text not null,
+        day text not null,
+        calls integer not null,
+        primary key (user_id, day)
+      );
+    `);
+    const day = "2026-11-06";
+    await db.query(RESERVE_CALL_SQL, ["user", day, MODEL_CALL_CAP]);
+    await db.query(`update paypilot_model_use set calls = $1 where user_id = $2`, [MODEL_CALL_CAP, "user"]);
+    const blocked = await db.query<{ calls: number }>(RESERVE_CALL_SQL, ["user", day, MODEL_CALL_CAP]);
+    assert.equal(blocked.rows.length, 0);
+    const kept = await db.query<{ calls: number }>(`select calls from paypilot_model_use where user_id = $1`, ["user"]);
+    assert.equal(kept.rows[0].calls, MODEL_CALL_CAP);
+    await db.close();
+  });
+});
+

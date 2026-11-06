@@ -61,6 +61,7 @@ test("app migrations stay pending until applied, and the auth source stays put",
   assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), [
     { name: "0001_auth.sql", path: "0001_auth.sql" },
     { name: "0002_paypilot.sql", path: "0002_paypilot.sql" },
+    { name: "0003_paypilot_guards.sql", path: "0003_paypilot_guards.sql" },
   ]);
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });

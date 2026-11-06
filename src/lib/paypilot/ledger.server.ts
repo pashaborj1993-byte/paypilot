@@ -1,7 +1,8 @@
-import { getRequest } from "@tanstack/react-start/server";
 import { getSql } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/verify.server";
-import { checkoutAmount, nextNumber } from "./money";
+import { checkoutAmount } from "./money";
+import { ALLOCATE_NUMBER_SQL, invoiceNumber } from "./numbers";
+import { isPayPalAdmin, webhookEndpoint } from "./policy";
 import type { Draft, Invoice, InvoiceStatus } from "./types";
 
 type InvoiceRow = {
@@ -22,9 +23,12 @@ type InvoiceRow = {
 
 async function caller(userId: string, bearerToken?: string) {
   const session = await getSessionUser(bearerToken);
-  if (session && session.id !== userId) throw new Error("Unauthorized");
-  const email = (session?.email || (userId === "dev-user" ? "dev@example.com" : `${userId}@users.paypilot`)).toLowerCase();
-  return { userId, email };
+  if (session) {
+    if (session.id !== userId || !session.email) throw new Error("Unauthorized");
+    return { userId: session.id, email: session.email.toLowerCase() };
+  }
+  if (userId !== "dev-user") throw new Error("Unauthorized");
+  return { userId, email: "dev@example.com" };
 }
 
 async function teamFor(userId: string, email: string) {
@@ -118,33 +122,34 @@ export async function openFor(userId: string, bearerToken: string | undefined, d
   const who = await caller(userId, bearerToken);
   const teamId = await teamFor(who.userId, who.email);
   const sql = await getSql();
-  const existing = await sql<{ number: string }>`select number from paypilot_invoice where team_id = ${teamId}`;
-  const number = nextNumber(existing.map((row) => ({ number: row.number }) as Invoice));
-  const { createCheckout } = await import("./paypal.server");
-  const paypal = await createCheckout(draft, number);
+  const allocated = await sql.query<{ next_n: number }>(ALLOCATE_NUMBER_SQL, [teamId]);
+  const number = invoiceNumber(allocated[0]?.next_n ?? 0);
   const invoiceId = crypto.randomUUID();
-  const rows = await sql.query<InvoiceRow>(
+  await sql.query(
     `insert into paypilot_invoice
-       (id, team_id, number, recipient_email, recipient_name, items, currency, note, status, paypal_id, paypal_url)
-     values ($1,$2,$3,$4,$5,$6,'USD',$7,'sent',$8,$9)
-     returning id, number, recipient_email, recipient_name, items, currency, note, status,
-       created_at::text as created_at, reminded_at::text as reminded_at, paid_at::text as paid_at,
-       paypal_id, paypal_url`,
-    [
-      invoiceId,
-      teamId,
-      number,
-      draft.recipientEmail,
-      draft.recipientName,
-      JSON.stringify(draft.items),
-      draft.note,
-      paypal.id,
-      paypal.url,
-    ],
+       (id, team_id, number, recipient_email, recipient_name, items, currency, note, status)
+     values ($1,$2,$3,$4,$5,$6,'USD',$7,'sent')`,
+    [invoiceId, teamId, number, draft.recipientEmail, draft.recipientName, JSON.stringify(draft.items), draft.note],
   );
-  const row = rows[0];
-  if (!row) throw new Error("The bill was not saved.");
-  return toInvoice(row);
+  try {
+    const { createCheckout } = await import("./paypal.server");
+    const paypal = await createCheckout(draft, number, invoiceId);
+    const rows = await sql.query<InvoiceRow>(
+      `update paypilot_invoice
+         set paypal_id = $2, paypal_url = $3
+       where id = $1
+       returning id, number, recipient_email, recipient_name, items, currency, note, status,
+         created_at::text as created_at, reminded_at::text as reminded_at, paid_at::text as paid_at,
+         paypal_id, paypal_url`,
+      [invoiceId, paypal.id, paypal.url],
+    );
+    const row = rows[0];
+    if (!row) throw new Error("The bill was not saved.");
+    return toInvoice(row);
+  } catch (error) {
+    await sql.query(`delete from paypilot_invoice where id = $1 and paypal_id is null`, [invoiceId]);
+    throw error;
+  }
 }
 
 async function invoiceInTeam(teamId: string, id: string) {
@@ -227,18 +232,22 @@ export async function webhookId() {
 }
 
 export async function connectWebhook(userId: string, bearerToken?: string) {
-  const { userId: id, email } = await caller(userId, bearerToken);
-  await teamFor(id, email);
-  const request = getRequest();
-  const host = request?.headers.get("x-forwarded-host") || request?.headers.get("host") || "";
-  if (!host || host.startsWith("localhost") || host.startsWith("127.")) {
-    throw new Error("Publish the app first. PayPal cannot call this machine.");
+  const who = await caller(userId, bearerToken);
+  if (!isPayPalAdmin(who.email, process.env.PAYPAL_ADMIN_EMAIL)) {
+    throw new Error("Only the address in PAYPAL_ADMIN_EMAIL can register the webhook.");
   }
-  const proto = request?.headers.get("x-forwarded-proto") || "https";
-  const url = `${proto}://${host}/api/paypal/webhook`;
-  const { registerWebhook } = await import("./paypal.server");
-  const created = await registerWebhook(url);
+  if (process.env.PAYPAL_WEBHOOK_ID?.trim()) {
+    throw new Error("PAYPAL_WEBHOOK_ID is already set. Clear it before registering a new URL.");
+  }
+  const url = webhookEndpoint(process.env.APP_PUBLIC_URL);
   const sql = await getSql();
+  const previous = await sql<{ paypal_id: string }>`select paypal_id from paypilot_webhook where id = ${"current"}`;
+  const { deleteWebhook, registerWebhook } = await import("./paypal.server");
+  if (previous[0]?.paypal_id) {
+    await deleteWebhook(previous[0].paypal_id);
+    await sql`delete from paypilot_webhook where id = ${"current"}`;
+  }
+  const created = await registerWebhook(url);
   await sql`
     insert into paypilot_webhook (id, url, paypal_id)
     values (${"current"}, ${url}, ${created.id})

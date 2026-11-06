@@ -73,7 +73,7 @@ async function paypal(
   return body;
 }
 
-export async function createCheckout(draft: Draft, number: string) {
+export async function createCheckout(draft: Draft, number: string, requestId: string) {
   const token = await accessToken();
   const order = await paypal(token, "POST", "/v2/checkout/orders", {
     intent: "CAPTURE",
@@ -84,7 +84,7 @@ export async function createCheckout(draft: Draft, number: string) {
         amount: { currency_code: "USD", value: checkoutAmount(draft) },
       },
     ],
-  }, { "PayPal-Request-Id": number });
+  }, { "PayPal-Request-Id": requestId });
   const url = order.links?.find((link) => link.rel === "approve")?.href || "";
   if (!order.id || !url) throw new Error("PayPal did not return a checkout link.");
   return { id: order.id, url };
@@ -105,6 +105,17 @@ export async function orderStatus(paypalId: string) {
   const token = await accessToken();
   const order = await paypal(token, "GET", `/v2/checkout/orders/${encodeURIComponent(paypalId)}`);
   return { status: order.status || "UNKNOWN" };
+}
+
+export async function deleteWebhook(id: string) {
+  const token = await accessToken();
+  const res = await fetch(`${BASE}/v1/notifications/webhooks/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`PayPal did not remove the previous webhook (${res.status}).`);
+  }
 }
 
 export async function registerWebhook(url: string) {

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
+import { authMiddleware } from "@/lib/auth/middleware";
 import { localInterpret } from "./interpret";
 import { checkoutAmount } from "./money";
-import { MODEL_CALL_CAP } from "./storage";
 import type { AgentResult, Draft, LineItem } from "./types";
 
 const SYSTEM = `You are PayPilot, a calm freelancer payments assistant.
@@ -21,20 +21,21 @@ Rules:
 - reply is plain language, no emoji.`;
 
 export const interpretRequest = createServerFn({ method: "POST" })
-  .validator((input: { text: string; calls?: number; ledger?: string }) => {
+  .middleware([authMiddleware])
+  .validator((input: { text: string }) => {
     const text = input?.text?.trim() ?? "";
     if (!text || text.length > 800) {
       throw new Error("Write a short request, under 800 characters.");
     }
-    const calls = Number(input?.calls ?? 0);
-    if (!Number.isFinite(calls) || calls < 0) {
-      throw new Error("Write a short request, under 800 characters.");
-    }
-    return { text, calls, ledger: (input?.ledger ?? "").slice(0, 1500) };
+    return { text };
   })
-  .handler(async ({ data }): Promise<AgentResult> => {
-    // shortcut: the cap trusts the browser's own count. A forged count or a new browser starts over. Upgrade to an account cap before this key is shared widely.
-    if (data.calls >= MODEL_CALL_CAP) return localInterpret(data.text);
+  .handler(async ({ data, context }): Promise<AgentResult> => {
+    const { takeModelCall } = await import("./quota.server");
+    const allowed = await takeModelCall(context.userId);
+    const { listFor } = await import("./ledger.server");
+    const { ledgerBrief } = await import("./money");
+    const ledger = ledgerBrief(await listFor(context.userId, context.bearerToken));
+    if (!allowed) return localInterpret(data.text);
 
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) return localInterpret(data.text);
@@ -54,7 +55,7 @@ export const interpretRequest = createServerFn({ method: "POST" })
             { role: "system", content: SYSTEM },
             {
               role: "user",
-              content: `${data.text}\n\nOpen bills (only these exist):\n${data.ledger || "none"}`,
+              content: `${data.text}\n\nOpen bills (only these exist):\n${ledger || "none"}`,
             },
           ],
         }),

@@ -72,11 +72,3 @@ export function ledgerBrief(invoices: Invoice[]) {
     .join("\n")
     .slice(0, 1500);
 }
-
-export function nextNumber(invoices: Invoice[]) {
-  const used = invoices
-    .map((invoice) => Number(invoice.number.replace(/\D/g, "")))
-    .filter((value) => Number.isFinite(value));
-  const next = (used.length ? Math.max(...used) : 1040) + 1;
-  return `PP-${next}`;
-}
