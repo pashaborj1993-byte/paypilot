@@ -20,9 +20,31 @@ PayPal credentials stay in `.env` (see `.env.example`). They are not in this rep
 
 ## Run
 
+You need Node 22+. Clone the repo, then:
+
 ```bash
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-Open http://localhost:8080. Create an account, then try “Invoice Maya Chen for 6 hours of brand design at $140”, then Approve.
+Open http://localhost:8080. Create an account with email and a password.
+
+Put these in `.env`:
+
+| Name | Where it comes from | What breaks without it |
+|---|---|---|
+| `PAYPAL_CLIENT_ID` | PayPal Developer Dashboard → Apps & Credentials → Sandbox | Approve cannot open a checkout |
+| `PAYPAL_CLIENT_SECRET` | Same app, Secret | Same |
+| `PAYPAL_ENV` | `sandbox` | Live charges. Do not change this for the demo |
+| `XAI_API_KEY` | xAI console | The desk drafts with a local parser instead of Grok |
+| `PAYPAL_WEBHOOK_ID` | Filled when you press Register PayPal webhook | PayPal cannot mark a bill paid on its own |
+| `DATABASE_URL` | Leave empty | Empty uses the local database. A Neon URL uses Neon |
+
+Try: “Invoice Maya Chen for 6 hours of brand design at $140”. Read the draft. Approve. PayPal sandbox opens the order. Nothing is sent to PayPal before Approve.
+
+## Tools
+
+- PayPal Checkout Orders v2 (sandbox): create order, capture after the payer approves, read order status, verify webhook signatures.
+- Grok `grok-4.5` via `https://api.x.ai/v1/chat/completions`: turns one sentence into a draft and names the oldest unpaid bill. No sponsor tool is used. Sponsor tools are optional.
+
