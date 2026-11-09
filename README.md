@@ -1,5 +1,13 @@
 # PayPilot
 
+## 🎥 Watch the demo
+
+<a href="https://www.youtube.com/watch?v=5hz2C9kJWPw" target="_blank" rel="noopener noreferrer">
+  <img src="https://img.youtube.com/vi/5hz2C9kJWPw/hqdefault.jpg" alt="Watch the PayPilot demo on YouTube" width="640" />
+</a>
+
+**[▶ Watch PayPilot in action on YouTube](https://www.youtube.com/watch?v=5hz2C9kJWPw)**
+
 A freelancer says who to bill. Grok (`grok-4.5`) drafts the invoice and can see the open bills, so "what's unpaid?" names the oldest one to chase. Nothing is created until a person approves it. Approval opens a PayPal sandbox checkout and saves the bill on the server, on that person's team.
 
 Sign in with email and a password, or with Google or X. The owner can invite a teammate by email. When that person signs in with the same email, they see the same ledger.
@@ -9,10 +17,6 @@ PayPal can mark a bill paid on its own. Set `APP_PUBLIC_URL` and `PAYPAL_ADMIN_E
 Publishing this app provisions a free Neon Postgres database. In the sandbox preview the same tables use the local database, which resets when the preview process restarts.
 
 PayPal credentials stay in `.env` (see `.env.example`). They are not in this repo. This app's PayPal permissions do not include the Invoicing product, so it uses Checkout orders.
-
-## Demo video
-
-Watch the full PayPilot demo: [PayPilot on YouTube](https://www.youtube.com/watch?v=5hz2C9kJWPw&feature=youtu.be).
 
 ## What is stored where
 
