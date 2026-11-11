@@ -1,6 +1,7 @@
 import { getSql } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/verify.server";
 import { checkoutAmount } from "./money";
+import { homeTeamId } from "./match";
 import { ALLOCATE_NUMBER_SQL, invoiceNumber } from "./numbers";
 import { isPayPalAdmin, webhookEndpoint } from "./policy";
 import type { Draft, Invoice, InvoiceStatus } from "./types";
@@ -33,14 +34,23 @@ async function caller(userId: string, bearerToken?: string) {
 
 async function teamFor(userId: string, email: string) {
   const sql = await getSql();
-  await sql`update paypilot_member set user_id = ${userId} where lower(email) = ${email} and user_id is null`;
-  const found = await sql<{ team_id: string }>`
-    select team_id from paypilot_member
-    where user_id = ${userId} or lower(email) = ${email}
-    limit 1
+  const linked = await sql<{ team_id: string; user_id: string | null; role: string }>`
+    select team_id, user_id, role from paypilot_member where user_id = ${userId}
   `;
-  const existing = found[0]?.team_id;
+  const existing = homeTeamId(
+    linked.map((row) => ({ teamId: row.team_id, userId: row.user_id, role: row.role })),
+    userId,
+  );
   if (existing) return existing;
+  await sql`update paypilot_member set user_id = ${userId} where lower(email) = ${email} and user_id is null`;
+  const invited = await sql<{ team_id: string; user_id: string | null; role: string }>`
+    select team_id, user_id, role from paypilot_member where user_id = ${userId}
+  `;
+  const joined = homeTeamId(
+    invited.map((row) => ({ teamId: row.team_id, userId: row.user_id, role: row.role })),
+    userId,
+  );
+  if (joined) return joined;
   // The desk loads the ledger and team details in parallel on a first visit.
   // A random id here could therefore create two owner teams for one user.
   // The authenticated user id gives a stable, private-to-the-database key, so

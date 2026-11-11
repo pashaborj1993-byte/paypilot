@@ -28,7 +28,48 @@ export function findInvoice(invoices: Invoice[], hint: string): Invoice | undefi
 
   const open = invoices.filter(isOpen);
   const named = open.filter((invoice) => nameInHint(needle, invoice.recipientName));
-  return named.length === 1 ? named[0] : undefined;
+  if (named.length === 1) return named[0];
+  if (named.length > 1) return undefined;
+  return uniqueFirstName(open, needle);
+}
+
+const NAME_STOP = new Set([
+  "remind",
+  "the",
+  "invoice",
+  "bill",
+  "mark",
+  "marked",
+  "paid",
+  "please",
+  "this",
+  "that",
+  "cancel",
+  "chase",
+  "unpaid",
+  "open",
+  "for",
+  "and",
+  "with",
+  "client",
+]);
+
+function uniqueFirstName(invoices: Invoice[], hint: string) {
+  const tokens = (hint.match(/[a-z][a-z'-]*/g) ?? []).filter((token) => !NAME_STOP.has(token));
+  const hits = invoices.filter((invoice) => {
+    const parts = invoice.recipientName.toLowerCase().split(/\s+/);
+    return tokens.some((token) => parts.includes(token));
+  });
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+export function homeTeamId(
+  memberships: { teamId: string; userId: string | null; role: string }[],
+  userId: string,
+) {
+  return memberships
+    .filter((row) => row.userId === userId)
+    .sort((a, b) => Number(a.role !== "owner") - Number(b.role !== "owner") || a.teamId.localeCompare(b.teamId))[0]?.teamId;
 }
 
 export function canFollowUp(status: Invoice["status"], next: "reminded" | "cancelled" | "paid") {

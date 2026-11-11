@@ -230,15 +230,15 @@ export function PayPilotDesk() {
         return;
       }
       if (result.action === "remind") {
-        applyStatus("reminded", result.targetHint || clean, "reminded");
+        await applyStatus("reminded", result.targetHint || clean, "reminded");
         return;
       }
       if (result.action === "mark_paid") {
-        applyStatus("paid", result.targetHint || clean, "paid");
+        await applyStatus("paid", result.targetHint || clean, "paid");
         return;
       }
       if (result.action === "cancel") {
-        applyStatus("cancelled", result.targetHint || clean, "cancelled");
+        await applyStatus("cancelled", result.targetHint || clean, "cancelled");
         return;
       }
       push({ id: crypto.randomUUID(), role: "assistant", text: result.reply });
@@ -656,9 +656,11 @@ function InvoiceCard({
             <button type="button" onClick={onPaid} className="h-10 rounded-[10px] border border-line px-3 text-xs text-ink">
               Mark paid
             </button>
-            <button type="button" onClick={onCancel} className="h-10 rounded-[10px] px-3 text-xs text-bad">
-              Cancel
-            </button>
+            {invoice.paypalId ? null : (
+              <button type="button" onClick={onCancel} className="h-10 rounded-[10px] px-3 text-xs text-bad">
+                Cancel
+              </button>
+            )}
           </>
         )}
       </div>

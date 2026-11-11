@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
-import { canFollowUp, findInvoice } from "./match.ts";
+import { isApproval, isDismiss, isListRequest, localInterpret } from "./interpret.ts";
+import { canFollowUp, findInvoice, homeTeamId } from "./match.ts";
 import { checkoutAmount, commerceSteps, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
 import { invoiceNumber, ALLOCATE_NUMBER_SQL } from "./numbers.ts";
 import { isPayPalAdmin, webhookEndpoint } from "./policy.ts";
@@ -45,6 +45,23 @@ describe("findInvoice", () => {
     assert.equal(findInvoice([ann], "remind Ann")?.number, "PP-1043");
   });
 
+  it("matches one open invoice by a unique first name", () => {
+    const maya = invoice({ number: "PP-1044", recipientName: "Maya Chen", recipientEmail: "maya.chen@client.test", status: "sent" });
+    const leo = invoice({ number: "PP-1045", recipientName: "Leo", recipientEmail: "leo@northline.test", status: "sent" });
+    assert.equal(findInvoice([maya, leo], "remind Maya")?.number, "PP-1044");
+    const other = invoice({ number: "PP-1046", recipientName: "Maya Lopez", recipientEmail: "maya.lopez@client.test", status: "sent" });
+    assert.equal(findInvoice([maya, other], "remind Maya"), undefined);
+  });
+
+  it("keeps an existing team when an invite arrives later", () => {
+    const rows = [
+      { teamId: "owner:ada", userId: "ada", role: "owner" },
+      { teamId: "owner:grace", userId: "ada", role: "member" },
+    ];
+    assert.equal(homeTeamId(rows, "ada"), "owner:ada");
+    assert.equal(homeTeamId([{ teamId: "owner:grace", userId: null, role: "member" }], "ada"), undefined);
+  });
+
   it("does not guess a bill when the hint is blank", () => {
     assert.equal(findInvoice(rows, "   "), undefined);
   });
@@ -63,6 +80,21 @@ describe("money and phrases", () => {
 
   it("keeps a tenth of an hour", () => {
     assert.equal(draftTotal({ items: [{ name: "Design", quantity: 0.1, unitPrice: 100 }] }), 10);
+  });
+
+  it("drafts the three lines a judge is told to try", () => {
+    const maya = localInterpret("invoice maya chen for 6 hours of brand design at $140 and $50 expenses");
+    assert.equal(maya.draft?.recipientName, "Maya Chen");
+    assert.equal(maya.draft?.recipientEmail, "maya.chen@client.test");
+    assert.equal(draftTotal(maya.draft!), 840);
+    const leo = localInterpret("Bill leo@northline.test $900 for a landing page");
+    assert.equal(leo.draft?.recipientEmail, "leo@northline.test");
+    assert.equal(leo.draft?.recipientName, "Leo");
+    assert.equal(draftTotal(leo.draft!), 900);
+    assert.equal(isListRequest("What's still unpaid?"), true);
+    assert.equal(localInterpret("What's still unpaid?").action, "none");
+    assert.equal(isApproval("Approved"), true);
+    assert.equal(localInterpret("invoice someone").draft, null);
   });
 
   it("does not treat a priced request as a list", () => {

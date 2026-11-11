@@ -5,7 +5,12 @@ export const Route = createFileRoute("/api/paypal/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const event = (await request.json()) as Parameters<typeof orderIdFromWebhook>[0];
+        let event: Parameters<typeof orderIdFromWebhook>[0];
+        try {
+          event = (await request.json()) as Parameters<typeof orderIdFromWebhook>[0];
+        } catch {
+          return new Response("rejected", { status: 400 });
+        }
         const { verifyWebhook } = await import("@/lib/paypilot/paypal.server");
         const { markPaidByPaypalOrder, webhookId } = await import("@/lib/paypilot/ledger.server");
         const id = await webhookId();

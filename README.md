@@ -4,7 +4,7 @@
 
 A freelancer says who to bill. Grok may draft the invoice and name the oldest unpaid bill. It cannot open a PayPal checkout until a person approves. PayPal, not the model, is what marks the bill paid.
 
-Sign in with email and a password, or with Google or X. The owner can invite a teammate by email. When that person signs in with the same email, they see the same ledger.
+Sign in with email and a password, or with Google or X. The owner can invite a teammate by email before that person creates an account. When they sign in with the same email, they join that ledger. If they already have their own team, the invite does not move them.
 
 PayPal can mark a bill paid on its own. Set `APP_PUBLIC_URL` and `PAYPAL_ADMIN_EMAIL`, then use **Register PayPal webhook**. PayPal then calls `/api/paypal/webhook`. The call is checked with PayPal's signature. `PAYMENT.CAPTURE.COMPLETED` and `CHECKOUT.ORDER.COMPLETED` mark the matching bill paid. The app does not take the webhook host from the request.
 

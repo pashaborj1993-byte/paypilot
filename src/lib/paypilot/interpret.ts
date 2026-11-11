@@ -1,7 +1,7 @@
 import type { AgentResult, Draft, LineItem } from "./types";
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
-const APPROVALS = new Set(["yes", "send it", "approve", "do it", "go ahead", "looks good"]);
+const APPROVALS = new Set(["yes", "send it", "approve", "approved", "do it", "go ahead", "looks good"]);
 
 export function isListRequest(text: string) {
   if (/\$\s*\d/.test(text) || /\d+(?:\.\d+)?\s*(?:hours?|hrs?)\b/i.test(text)) return false;
@@ -87,15 +87,15 @@ function hint(text: string) {
 function extractDraft(text: string): Draft | null {
   const email = text.match(EMAIL)?.[0] ?? "";
   const money = [...text.matchAll(/\$\s*(\d+(?:\.\d{1,2})?)/g)].map((match) => Number(match[1]));
+  const atPrice = text.match(/\bat\s+\$\s*(\d+(?:\.\d{1,2})?)/i);
   const hours = text.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)\b/i);
   const units = text.match(/(\d+(?:\.\d+)?)\s*(?:units?|days?|sessions?)\b/i);
-
-  const named = text.match(/\b(?:invoice|bill|charge)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/)?.[1] ?? "";
+  const named = personName(text);
 
   const forWhat = text.match(/\bfor\s+(.+?)(?:\s+at\s+\$|\s+for\s+\$|$)/i)?.[1]?.replace(/\.$/, "").trim() ?? "";
 
   const quantity = hours ? Number(hours[1]) : units ? Number(units[1]) : 1;
-  const unitPrice = hours && money.length ? money[money.length - 1] : money[0];
+  const unitPrice = atPrice ? Number(atPrice[1]) : hours && money.length ? money[money.length - 1] : money[0];
 
   if (!unitPrice || (!email && !named && !forWhat)) return null;
 
@@ -118,6 +118,19 @@ function extractDraft(text: string): Draft | null {
     note: "Thanks for the work together.",
     items,
   };
+}
+
+function personName(text: string) {
+  const match = text.match(/\b(?:invoice|bill|charge)\s+([A-Za-z]+)(?:\s+([A-Za-z]+))?/i);
+  if (!match) return "";
+  const skip = new Set(["for", "at", "and", "with"]);
+  const first = titled(match[1]);
+  const second = match[2] && !skip.has(match[2].toLowerCase()) ? titled(match[2]) : "";
+  return second ? `${first} ${second}` : first;
+}
+
+function titled(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }
 
 function slug(name: string) {
