@@ -250,7 +250,10 @@ export async function connectWebhook(userId: string, bearerToken?: string) {
   }
   const url = webhookEndpoint(process.env.APP_PUBLIC_URL);
   const sql = await getSql();
-  const previous = await sql<{ paypal_id: string }>`select paypal_id from paypilot_webhook where id = ${"current"}`;
+  const previous = await sql<{ paypal_id: string; url: string }>`
+    select paypal_id, url from paypilot_webhook where id = ${"current"}
+  `;
+  if (previous[0]?.paypal_id && previous[0].url === url) return { url };
   const { deleteWebhook, registerWebhook } = await import("./paypal.server");
   // Register and persist the replacement before removing the working webhook.
   // If PayPal or the database rejects the new registration, the old callback

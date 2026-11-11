@@ -22,7 +22,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
@@ -73,11 +73,12 @@ export function mergeAppEnv(appEnv, processEnv) {
  * project's executable directory before launching Vite.
  */
 export function normalizeSpawnEnv(env, platform = process.platform, root = projectRoot()) {
-  const bin = join(root, "node_modules", ".bin");
+  const pathApi = platform === "win32" ? win32 : { join, delimiter };
+  const bin = pathApi.join(root, "node_modules", ".bin");
   if (platform !== "win32") {
-    return { ...env, PATH: [bin, env.PATH].filter(Boolean).join(delimiter) };
+    return { ...env, PATH: [bin, env.PATH].filter(Boolean).join(pathApi.delimiter) };
   }
-  const path = [bin, env.Path ?? env.PATH].filter(Boolean).join(delimiter);
+  const path = [bin, env.Path ?? env.PATH].filter(Boolean).join(pathApi.delimiter);
   const normalized = Object.fromEntries(
     Object.entries(env).filter(([key]) => key.toLowerCase() !== "path"),
   );
