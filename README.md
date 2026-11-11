@@ -1,6 +1,6 @@
 # PayPilot
 
-[Watch the three-minute demo](https://www.youtube.com/watch?v=5hz2C9kJWPw).
+[Watch the three-minute demo](https://www.youtube.com/watch?v=5hz2C9kJWPw). Live app: [plaza-daisy-cliff-arrow.grok.me](https://plaza-daisy-cliff-arrow.grok.me).
 
 A freelancer says who to bill. Grok may draft the invoice and name the oldest unpaid bill. It cannot open a PayPal checkout until a person approves. PayPal, not the model, is what marks the bill paid.
 

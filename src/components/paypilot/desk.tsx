@@ -8,7 +8,7 @@ import { isApproval, isDismiss, isListRequest } from "@/lib/paypilot/interpret";
 import { printInvoice } from "@/lib/paypilot/invoice-doc";
 import { changeInvoice, connectPayPalWebhook, inviteMember, listInvoices, openInvoice, syncInvoice, teamInfo } from "@/lib/paypilot/ledger";
 import { canFollowUp, findInvoice } from "@/lib/paypilot/match";
-import { draftTotal, formatMoney, oldestOpen, outstanding } from "@/lib/paypilot/money";
+import { draftTotal, formatMoney, commerceSteps, oldestOpen, outstanding } from "@/lib/paypilot/money";
 import { loadChat, loadLogo, saveChat, saveLogo } from "@/lib/paypilot/storage";
 import type { ChatMessage, Draft, Invoice, InvoiceStatus } from "@/lib/paypilot/types";
 
@@ -253,16 +253,28 @@ export function PayPilotDesk() {
   if (isPending) return null;
   if (!user) {
     return (
-      <main className="grid min-h-screen place-items-center px-6">
-        <div className="max-w-sm space-y-3 text-center">
-          <h1 className="font-display text-4xl">
-            <span className="text-ink">Pay</span>
-            <span className="text-sky">Pilot</span>
-          </h1>
-          <p className="text-sm text-muted">Sign in. Your team ledger is stored on the server.</p>
+      <main className="rise mx-auto grid min-h-screen max-w-lg place-items-center px-6 py-16">
+        <div className="space-y-6">
+          <div>
+            <p className="text-xs font-medium tracking-[0.16em] text-muted uppercase">Agentic receivables</p>
+            <h1 className="font-display text-5xl leading-none">
+              <span className="text-ink">Pay</span>
+              <span className="text-sky">Pilot</span>
+            </h1>
+            <p className="mt-4 text-lg text-ink">Grok drafts the bill. You approve it. Only PayPal can mark it paid.</p>
+            <p className="mt-2 text-sm text-muted">
+              For a freelancer who will not let an agent move money. The chase order comes from the ledger, oldest bill first. The model cannot invent a balance.
+            </p>
+          </div>
+          <ol className="space-y-2 text-sm text-ink">
+            <li>1. Say who to bill. Grok writes the draft.</li>
+            <li>2. Approve. That is the only step that opens a PayPal sandbox checkout.</li>
+            <li>3. The bill stays open until PayPal says completed.</li>
+          </ol>
           <Link to="/login" className="inline-flex h-11 items-center rounded-[12px] bg-accent px-4 text-sm font-medium text-accent-fg">
-            Sign in
+            Create an account
           </Link>
+          <p className="text-xs text-faint">Try “Invoice Maya Chen for 6 hours of brand design at $140”, then Approve.</p>
         </div>
       </main>
     );
@@ -272,7 +284,7 @@ export function PayPilotDesk() {
     <main className="rise mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-4 md:px-6 md:py-6">
       <header className="mb-4 flex items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-medium tracking-[0.16em] text-muted uppercase">Sandbox ledger</p>
+          <p className="text-xs font-medium tracking-[0.16em] text-muted uppercase">Approval-first agent</p>
           <h1 className="font-display text-3xl leading-none tracking-tight">
             <span className="text-ink">Pay</span>
             <span className="text-sky">Pilot</span>
@@ -284,6 +296,37 @@ export function PayPilotDesk() {
           <p className="text-sm text-muted">{openCount} open</p>
         </div>
       </header>
+
+      <section className="mb-4 rounded-[20px] border border-line bg-surface px-4 py-3">
+        <p className="text-xs font-medium tracking-[0.14em] text-muted uppercase">Next action</p>
+        {chase ? (
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-ink">
+              Chase {chase.recipientName} · {chase.number} · {formatMoney(draftTotal(chase))}. Oldest open bill. The ledger picked this, not the model.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => applyStatus("reminded", chase.number, "reminded")}
+              className="h-10 rounded-[12px] bg-accent px-3 text-xs font-medium text-accent-fg disabled:opacity-40"
+            >
+              Chase {chase.recipientName}
+            </button>
+          </div>
+        ) : (
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-ink">No one to chase. Draft a bill, then approve it before PayPal is involved.</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void submit(SUGGESTIONS[0])}
+              className="h-10 rounded-[12px] bg-accent px-3 text-xs font-medium text-accent-fg disabled:opacity-40"
+            >
+              Draft Maya Chen
+            </button>
+          </div>
+        )}
+      </section>
 
       <div className="mb-3 grid grid-cols-2 gap-2 md:hidden">
         <PaneButton active={pane === "chat"} onClick={() => setPane("chat")} label="Chat" />
@@ -583,10 +626,17 @@ function InvoiceCard({
         <StatusPill status={invoice.status} />
       </div>
       <p className="mt-2 font-mono text-sm tabular-nums text-ink">{formatMoney(draftTotal(invoice), "USD")}</p>
+      <ol className="mt-3 grid grid-cols-2 gap-1 text-[11px] leading-4">
+        {commerceSteps(invoice).map((step) => (
+          <li key={step.label} className={step.done ? "text-ink" : "text-faint"}>
+            {step.done ? "●" : "○"} {step.label}
+          </li>
+        ))}
+      </ol>
       <p className="mt-1 text-xs text-muted">{invoice.paypalId ? `${invoice.paypalId} · ` : ""}{when}</p>
       {invoice.paypalUrl ? (
-        <a href={invoice.paypalUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-accent">
-          Open in PayPal
+        <a href={invoice.paypalUrl} target="_blank" rel="noreferrer" className="mt-3 flex h-10 items-center justify-center rounded-[10px] bg-accent text-xs font-medium text-accent-fg">
+          Open PayPal checkout
         </a>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">

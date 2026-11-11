@@ -60,6 +60,16 @@ export function oldestOpen(invoices: Invoice[]) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
 }
 
+export function commerceSteps(invoice: Pick<Invoice, "status" | "paypalId">) {
+  const cancelled = invoice.status === "cancelled";
+  return [
+    { label: "Grok drafted", done: true },
+    { label: "You approved", done: !cancelled },
+    { label: "PayPal checkout", done: Boolean(invoice.paypalId) && !cancelled },
+    { label: "Paid by PayPal", done: invoice.status === "paid" },
+  ];
+}
+
 export function ledgerBrief(invoices: Invoice[]) {
   return invoices
     .filter((invoice) => invoice.status === "sent" || invoice.status === "reminded")

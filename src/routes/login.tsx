@@ -35,7 +35,7 @@ function Login() {
           <span>Pay</span>
           <span className="text-sky">Pilot</span>
         </h1>
-        <p className="text-sm text-muted">One account. One team. The ledger lives on the server.</p>
+        <p className="text-sm text-muted">Grok drafts. You approve. PayPal is the only thing that can mark a bill paid.</p>
         <form className="space-y-2" onSubmit={(event) => void submit(event)}>
           {mode === "up" ? (
             <input

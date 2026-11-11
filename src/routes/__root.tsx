@@ -13,7 +13,7 @@ export const Route = createRootRoute({
       { title: APP_NAME },
       {
         name: "description",
-        content: "PayPilot drafts invoices in conversation and records them only after you approve.",
+        content: "Grok drafts the bill. You approve it. Only PayPal can mark it paid.",
       },
       { name: "theme-color", content: "#003087" },
     ],

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isApproval, isDismiss, isListRequest } from "./interpret.ts";
 import { canFollowUp, findInvoice } from "./match.ts";
-import { checkoutAmount, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
+import { checkoutAmount, commerceSteps, draftTotal, ledgerBrief, oldestOpen, payStep } from "./money.ts";
 import { invoiceNumber, ALLOCATE_NUMBER_SQL } from "./numbers.ts";
 import { isPayPalAdmin, webhookEndpoint } from "./policy.ts";
 import { MODEL_CALL_CAP, RESERVE_CALL_SQL, withinDailyCap } from "./quota.ts";
@@ -106,6 +106,12 @@ describe("money and phrases", () => {
     assert.equal(oldestOpen(rows)?.number, "PP-1043");
     assert.match(ledgerBrief(rows), /^PP-1043 \| Ann/);
     assert.equal(ledgerBrief(rows).includes("Maya"), false);
+    assert.deepEqual(
+      commerceSteps({ status: "sent", paypalId: "ORDER1" }).map((step) => step.done),
+      [true, true, true, false],
+    );
+    assert.equal(commerceSteps({ status: "paid", paypalId: "ORDER1" })[3].done, true);
+    assert.equal(commerceSteps({ status: "cancelled" })[2].done, false);
   });
 
   it("reads the PayPal order id from a completed capture", () => {
